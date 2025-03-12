@@ -47,7 +47,7 @@ try:
             # Stream the changed part to LSL
             for row in changed_data.T:  # LSL expects data in row-major order
                 lsl_outlet.push_sample(row[eeg_channels + gyro_channels + accel_channels + Beep_Channel].tolist())
-
+                print(row[eeg_channels])
             # Update the last_data with the current batch
             last_data = data
 
