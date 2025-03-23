@@ -12,7 +12,7 @@ board_shim.prepare_session()
 board_shim.start_stream()
 
 # Lab Streaming Layer setup
-lsl_info = StreamInfo('MindRoveStream', 'EEG', 16, 500, 'float32', 'myuid34234')
+lsl_info = StreamInfo('MindRoveStream', 'EEG', 16, 500, 'double64', 'myuid34234')
 lsl_outlet = StreamOutlet(lsl_info)
 
 # Get channel indices
