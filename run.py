@@ -1,15 +1,9 @@
 import time
 import numpy as np
-import RPi.GPIO as GPIO
-from mindrove.board_shim import BoardShim, MindRoveInputParams, BoardIds, MindroveConfigMode
-from pylsl import StreamInfo, StreamOutlet
+from mindrove.board_shim import BoardShim, MindRoveInputParams, BoardIds
+from pylsl import StreamInfo, StreamOutlet  # LSL import
 
-# GPIO Configuration
-GPIO.setmode(GPIO.BCM)
-TRIGGER_PIN = 18
-GPIO.setup(TRIGGER_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-
-# Initialize MindRove board
+# Initialize the board
 BoardShim.enable_dev_board_logger()
 params = MindRoveInputParams()
 board_id = BoardIds.MINDROVE_WIFI_BOARD
@@ -17,60 +11,51 @@ board_shim = BoardShim(board_id, params)
 board_shim.prepare_session()
 board_shim.start_stream()
 
-# EEG/EMG (500Hz) LSL outlet
-eeg_channels = BoardShim.get_eeg_channels(board_id)
-beep_channel = [19]
-eeg_info = StreamInfo('MindRove_EEG', 'EEG', len(eeg_channels) + 1, 500, 'float32', 'eeg_stream')
-eeg_outlet = StreamOutlet(eeg_info)
+# Lab Streaming Layer setup
+lsl_info = StreamInfo('MindRoveStream', 'EEG', 16, 500, 'float32', 'myuid34234')
+lsl_outlet = StreamOutlet(lsl_info)
 
-# IMU (50Hz) LSL outlet
+# Get channel indices
+eeg_channels = BoardShim.get_eeg_channels(board_id)
 accel_channels = BoardShim.get_accel_channels(board_id)
 gyro_channels = BoardShim.get_gyro_channels(board_id)
-imu_channels = accel_channels + gyro_channels
-imu_info = StreamInfo('MindRove_IMU', 'IMU', len(imu_channels), 50, 'float32', 'imu_stream')
-imu_outlet = StreamOutlet(imu_info)
+timestamp_channel = BoardShim.get_timestamp_channel(board_id)
+beep_channel = [19]
 
-# Data handling
-imu_interval = 1 / 50
-eeg_interval = 1 / 500
-last_imu_time = time.time()
-last_eeg_time = time.time()
+num_points = 2000
+last_timestamp = -np.inf  # initially set to negative infinity to ensure all data is streamed first
 
 try:
     while True:
-        # Check GPIO Trigger
-        if GPIO.input(TRIGGER_PIN) == GPIO.HIGH:
-            print("GPIO Trigger Received!")
-            board_shim.config_board(MindroveConfigMode.BEEP)
+        if board_shim.get_board_data_count() >= num_points:
+            data = board_shim.get_current_board_data(num_points)
+            # print(data.shape)
+            # Extract timestamps
+            timestamps = data[timestamp_channel]
 
-        current_time = time.time()
-        board_data_count = board_shim.get_board_data_count()
-        
-        if board_data_count > 0:
-            data = board_shim.get_current_board_data(board_data_count)
-            num_samples = data.shape[1]
-            
-            for i in range(num_samples):
-                sample = data[:, i]
+            # Find indices of new timestamps
+            new_data_indices = np.where(timestamps > last_timestamp)[0]
 
-                # Stream EEG at ~500Hz
-                if current_time - last_eeg_time >= eeg_interval:
-                    eeg_sample = sample[eeg_channels + beep_channel]
-                    eeg_outlet.push_sample(eeg_sample.tolist())
-                    last_eeg_time = current_time
+            if len(new_data_indices) == 0:
+                # No new data since last timestamp
+                continue
 
-                # Stream IMU at ~50Hz
-                if current_time - last_imu_time >= imu_interval:
-                    imu_sample = sample[imu_channels]
-                    imu_outlet.push_sample(imu_sample.tolist())
-                    last_imu_time = current_time
+            # Slice data starting from the first new timestamp
+            changed_data = data[:, new_data_indices]
 
-                current_time = time.time()
+            # Stream the new data to LSL
+            for row in changed_data.T:
+                sample = row[[timestamp_channel]+ eeg_channels + gyro_channels + accel_channels + beep_channel].tolist()
+                lsl_outlet.push_sample(sample)
+                print("EEG Sample:", row[[timestamp_channel]+ eeg_channels])
+
+            # Update the last timestamp
+            last_timestamp = timestamps[new_data_indices[-1]]
+
+        time.sleep(0.002)
 
 except KeyboardInterrupt:
-    print("Stopping session...")
-
+    print("Stopping the session...")
 finally:
     board_shim.stop_stream()
     board_shim.release_session()
-    GPIO.cleanup()
