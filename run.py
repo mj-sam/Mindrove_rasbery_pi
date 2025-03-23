@@ -42,12 +42,14 @@ try:
 
             # Slice data starting from the first new timestamp
             changed_data = data[:, new_data_indices]
-
+            print(changed_data.shape)
             # Stream the new data to LSL
             for row in changed_data.T:
+                #print(row[27])
                 sample = row[[timestamp_channel]+ eeg_channels + gyro_channels + accel_channels + beep_channel].tolist()
+                print(sample)
                 lsl_outlet.push_sample(sample)
-                print("EEG Sample:", row[[timestamp_channel]+ eeg_channels])
+                #print("EEG Sample:", row[[timestamp_channel]+ eeg_channels])
 
             # Update the last timestamp
             last_timestamp = timestamps[new_data_indices[-1]]
